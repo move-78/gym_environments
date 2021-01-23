@@ -108,19 +108,7 @@ class GridworldEnv(gym.Env):
         agent = patches.Polygon(self.agent_coords, closed=True, fill=True)
         self.ax.add_patch(agent)
 
-        #plt.show(block=False)
-        plt.show()
-        '''
-        for _ in range(5):
-            agent.update(
-                {
-                    'x': np.random.randint(0, 10) + 0.05,
-                    'y': np.random.randint(0, 10) + 0.05
-                }
-            )
-            plt.pause(1)
-            plt.draw()
-        '''
+        plt.show(block=False)
 
     def reset(self):
         pass
