@@ -19,3 +19,7 @@ while True:
             print("Quitting requested. Now exiting the game.")
             pg.quit()
             sys.exit(0)
+        elif event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
+            env.reset()
+        elif event.type == pg.MOUSEBUTTONDOWN:
+            print(pg.mouse.get_pos())
