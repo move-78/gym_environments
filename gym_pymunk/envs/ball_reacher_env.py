@@ -1,8 +1,8 @@
 import numpy as np
-import gym
 import pymunk as pm
-from gym_pymunk.envs.window import Window
+from gym_pymunk.utils.window import Window
 from gym_pymunk.envs.pymunk_env import PyMunkGoalEnv
+from gym_pymunk.utils.pymunk_helper import create_mocap_circle
 
 DT = (1.0 / 60)
 WALL_LENGTH = 500
@@ -19,6 +19,12 @@ AGENT_MASS = 1
 
 MIN_END_GOAL_THRESHOLD = AGENT_RADIUS * 1.15
 
+END_GOAL_MOCAP_RADIUS = 15
+END_GOAL_MOCAP_COLOR = (255, 255, 0, 1)
+
+SUBGOAL_MOCAP_RADIUS = 15
+SUBGOAL_MOCAP_COLOR = (255, 0, 255, 1)
+
 
 def limit_velocity(body, gravity, damping, dt):
     pm.Body.update_velocity(body, gravity, damping, dt)
@@ -33,8 +39,15 @@ class BallReacherEnv(PyMunkGoalEnv):
     def __init__(self):
         name = "BallReacherPymunkEnv"
         reward_type = "sparse"
-        goal_space_train = [[OFFSET + WALL_WIDTH, OFFSET + WALL_LENGTH], [OFFSET + WALL_WIDTH, OFFSET + WALL_LENGTH]]
-        goal_space_test = [[OFFSET + WALL_WIDTH, OFFSET + WALL_LENGTH], [OFFSET + WALL_WIDTH, OFFSET + WALL_LENGTH]]
+        goal_space_train = [[OFFSET + WALL_WIDTH + AGENT_RADIUS * 1.5,
+                             OFFSET + WALL_LENGTH - AGENT_RADIUS * 1.5 - WALL_WIDTH],
+                            [OFFSET + WALL_WIDTH + AGENT_RADIUS * 1.5,
+                             OFFSET + WALL_LENGTH - AGENT_RADIUS * 1.5 - WALL_WIDTH]]
+
+        goal_space_test = [[OFFSET + WALL_WIDTH + AGENT_RADIUS * 1.5,
+                            OFFSET + WALL_LENGTH - AGENT_RADIUS * 1.5 - WALL_WIDTH],
+                           [OFFSET + WALL_WIDTH + AGENT_RADIUS * 1.5,
+                            OFFSET + WALL_LENGTH - AGENT_RADIUS * 1.5 - WALL_WIDTH]]
 
         end_goal_thresholds = np.array([MIN_END_GOAL_THRESHOLD, MIN_END_GOAL_THRESHOLD])
 
@@ -49,8 +62,16 @@ class BallReacherEnv(PyMunkGoalEnv):
         self._window = None
         self._space = pm.Space()
 
+        self._n_subgoals = 1
+        self.goal = self._sample_goal()
+
+        self._setup_mocap_goals()
         self._setup_agent()
         self._setup_walls()
+
+    def _setup_mocap_goals(self):
+        self._end_goal_mocap = create_mocap_circle(self._space, self.goal, END_GOAL_MOCAP_RADIUS, END_GOAL_MOCAP_COLOR)
+        self._space.add(self._end_goal_mocap)
 
     def _setup_agent(self):
         self.agent = pm.Body(body_type=pm.Body.DYNAMIC)
@@ -97,8 +118,9 @@ class BallReacherEnv(PyMunkGoalEnv):
         self._window.update()
 
     def step(self, action):
+        action = np.array([0, 1])
         vector = tuple(action * FORCE_MULTIPLIER)
-        #self.agent.apply_force_at_local_point(force=vector)
+        self.agent.apply_force_at_local_point(force=vector)
         self._space.step(DT)
 
     def project_state_to_end_goal(self):

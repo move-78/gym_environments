@@ -44,3 +44,6 @@ class PyMunkGoalEnv(gym.GoalEnv, ABC):
     @abstractmethod
     def _get_state(self):
         pass
+
+    def _render_callback(self):
+        pass
