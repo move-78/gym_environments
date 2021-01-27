@@ -4,6 +4,7 @@ from gym_pymunk.utils.window import Window
 from gym_pymunk.envs.pymunk_env import PyMunkGoalEnv
 from gym_pymunk.utils.pymunk_helper import create_mocap_circle
 
+
 DT = (1.0 / 60)
 WALL_LENGTH = 500
 WALL_WIDTH = 25
@@ -17,13 +18,21 @@ MAX_VELOCITY = 100
 AGENT_RADIUS = 25
 AGENT_MASS = 1
 
-MIN_END_GOAL_THRESHOLD = AGENT_RADIUS * 1.15
+MIN_END_GOAL_THRESHOLD = 0.05
 
 END_GOAL_MOCAP_RADIUS = 15
 END_GOAL_MOCAP_COLOR = (255, 255, 0, 1)
 
 SUBGOAL_MOCAP_RADIUS = 15
 SUBGOAL_MOCAP_COLOR = (255, 0, 255, 1)
+
+MIN_RANGE_ENV = OFFSET + WALL_WIDTH / 2
+MAX_RANGE_ENV = WALL_LENGTH + OFFSET - WALL_WIDTH / 2
+
+TARGET_MIN_RANGE_ENV = -1
+TARGET_MAX_RANGE_ENV = 1
+
+MIN_DISTANCE_TO_GOAL = 0.4
 
 
 def limit_velocity(body, gravity, damping, dt):
@@ -33,6 +42,10 @@ def limit_velocity(body, gravity, damping, dt):
     if body_vel_magnitude > MAX_VELOCITY:
         scale = MAX_VELOCITY / body_vel_magnitude
     body.velocity = body.velocity * scale
+
+
+def _goal_to_render_coordinates(goal):
+    return np.interp(goal, (TARGET_MIN_RANGE_ENV, TARGET_MAX_RANGE_ENV), (MIN_RANGE_ENV, MAX_RANGE_ENV))
 
 
 class BallReacherEnv(PyMunkGoalEnv):
@@ -65,13 +78,18 @@ class BallReacherEnv(PyMunkGoalEnv):
         self._n_subgoals = 1
         self.goal = self._sample_goal()
 
-        self._setup_mocap_goals()
-        self._setup_agent()
         self._setup_walls()
+        self._setup_agent()
+        self._setup_mocap_goals()
+
+        self._step_counter = 0
 
     def _setup_mocap_goals(self):
-        self._end_goal_mocap = create_mocap_circle(self._space, self.goal, END_GOAL_MOCAP_RADIUS, END_GOAL_MOCAP_COLOR)
-        self._space.add(self._end_goal_mocap)
+        goal_render = _goal_to_render_coordinates(self.goal)
+        self._end_goal_mocap, self._end_goal_mocap_body = create_mocap_circle(self._space, goal_render,
+                                                                              END_GOAL_MOCAP_RADIUS,
+                                                                              END_GOAL_MOCAP_COLOR)
+        self._space.add(self._end_goal_mocap, self._end_goal_mocap_body)
 
     def _setup_agent(self):
         self.agent = pm.Body(body_type=pm.Body.DYNAMIC)
@@ -108,19 +126,22 @@ class BallReacherEnv(PyMunkGoalEnv):
             assert len(dim) == 2, f"The dimension has to be 2 and not {len(dim)}."
             pos[i] = np.random.uniform(low=dim[0], high=dim[1])
         self.agent.position = tuple(pos)
+        return self._get_state()
 
     def reset(self):
-        self._reset_agent_pos_within_initial_state_space()
+        self.goal = self._sample_goal()
+        obs = self._reset_sim(next_goal=self.goal)
+        self.display_end_goal(self.goal)
+        return obs
 
     def render(self, mode='human'):
         if self._window is None:
             self._window = Window(space=self._space)
+        self._render_callback()
         self._window.update()
 
     def step(self, action):
-        action = np.array([0, 1])
-        vector = tuple(action * FORCE_MULTIPLIER)
-        self.agent.apply_force_at_local_point(force=vector)
+        self._set_action(action)
         self._space.step(DT)
 
     def project_state_to_end_goal(self):
@@ -129,11 +150,20 @@ class BallReacherEnv(PyMunkGoalEnv):
     def project_state_to_subgoal(self):
         return self._get_state()
 
-    def _reset_sim(self):
-        pass
+    def _reset_sim(self, next_goal):
+        self._step_counter = 0
+        pos = self._reset_agent_pos_within_initial_state_space()
+        while True:
+            if np.linalg.norm(next_goal - pos[:2]) > MIN_DISTANCE_TO_GOAL:
+                break
+            else:
+                pos = self._reset_agent_pos_within_initial_state_space()
+        return self._get_obs()
 
-    def _obs2goal(self):
-        pass
+    def _obs2goal(self, state):
+        # This returns the first 2 values of the state (i.e. the x & y positions of the ball)
+        # That corresponds to the end goal space (which is the 2-dimensional x & y position of the goal)
+        return state[:2]
 
     def _obs2subgoal(self):
         pass
@@ -145,7 +175,8 @@ class BallReacherEnv(PyMunkGoalEnv):
         pass
 
     def display_end_goal(self, end_goal):
-        pass
+        end_goal = _goal_to_render_coordinates(end_goal)
+        self._end_goal_mocap.body.position = tuple(end_goal)
 
     def display_subgoals(self, subgoals):
         pass
@@ -153,21 +184,58 @@ class BallReacherEnv(PyMunkGoalEnv):
     def _render_callback(self):
         pass
 
+    def _sample_goal(self) -> np.array:
+        goal = super()._sample_goal()
+        return np.interp(goal, (MIN_RANGE_ENV, MAX_RANGE_ENV),
+                         (TARGET_MIN_RANGE_ENV, TARGET_MAX_RANGE_ENV))
+
     # Abstract methods
     def compute_reward(self, achieved_goal, desired_goal, info):
-        pass
+        individual_differences = achieved_goal - desired_goal
+        d = np.linalg.norm(individual_differences, axis=-1)
+
+        if self.reward_type == 'sparse':
+            reward = -1 * np.any(np.abs(individual_differences) > np.array([MIN_END_GOAL_THRESHOLD] * d.size),
+                                 axis=-1).astype(np.float32)
+            return reward
+        else:
+            return -1 * d
 
     def _get_obs(self):
-        pass
+        obs = self._get_state()
+        noisy_obs = obs.copy()
+        # noisy_obs = add_noise(obs.copy(), self.obs_history, self.obs_noise_coefficient)
+
+        achieved_goal = self._obs2goal(noisy_obs)
+
+        obs = {
+            'observation': noisy_obs,
+            'achieved_goal': achieved_goal.copy(),
+            'desired_goal': self.goal.copy(),
+            'non_noisy_obs': obs.copy()
+        }
+        return obs
 
     def goal_achieved(self):
         pass
 
     def _is_success(self, achieved_goal, desired_goal):
-        pass
+        d = np.abs(achieved_goal - desired_goal)
+        return np.all(d < MIN_END_GOAL_THRESHOLD, axis=-1).astype(np.float32)
 
     def _set_action(self, action):
-        pass
+        vector = tuple(action * FORCE_MULTIPLIER)
+        #self.agent.apply_force_at_local_point(force=vector)
 
     def _get_state(self):
-        pass
+        normalized_pos = self._get_normalized_pos()
+        normalized_vel = self._get_normalized_vel()
+        return np.concatenate((normalized_pos, normalized_vel))
+
+    def _get_normalized_pos(self):
+        return np.interp(self.agent.position, (MIN_RANGE_ENV, MAX_RANGE_ENV),
+                         (TARGET_MIN_RANGE_ENV, TARGET_MAX_RANGE_ENV))
+
+    def _get_normalized_vel(self):
+        return np.interp(self.agent.velocity, (-MAX_VELOCITY, MAX_VELOCITY),
+                         (TARGET_MIN_RANGE_ENV, TARGET_MAX_RANGE_ENV))

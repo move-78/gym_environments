@@ -14,6 +14,7 @@ while True:
     length = np.linalg.norm(action)
     action = action / length
     env.step(action)
+
     for event in pg.event.get():
         if event.type == pg.QUIT or (event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE):
             print("Quitting requested. Now exiting the game.")
@@ -22,4 +23,7 @@ while True:
         elif event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
             env.reset()
         elif event.type == pg.MOUSEBUTTONDOWN:
-            print(pg.mouse.get_pos())
+            obs = env._get_obs()
+            print(obs)
+            print(env.goal)
+            print(env.compute_reward(obs['achieved_goal'], obs['desired_goal'], None))
