@@ -1,29 +1,13 @@
-import sys
-import gym_pymunk
-import gym
 import time
-import pygame as pg
-import numpy as np
+import pymunk
 
+start = time.time_ns()
 
-env = gym.make("BallReacher-v0")
+for i in range(100000):
+    b = pymunk.Body(1, 10)
+    b.position = 1.0, 2.0
+    b.angle = 3.0
+    t = b.position.x + b.position.y + b.angle
 
-while True:
-    env.render()
-    action = np.random.uniform(-1, 1, size=(2, 1))
-    length = np.linalg.norm(action)
-    action = action / length
-    env.step(action)
-
-    for event in pg.event.get():
-        if event.type == pg.QUIT or (event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE):
-            print("Quitting requested. Now exiting the game.")
-            pg.quit()
-            sys.exit(0)
-        elif event.type == pg.KEYDOWN and event.key == pg.K_SPACE:
-            env.reset()
-        elif event.type == pg.MOUSEBUTTONDOWN:
-            obs = env._get_obs()
-            print(obs)
-            print(env.goal)
-            print(env.compute_reward(obs['achieved_goal'], obs['desired_goal'], None))
+end = time.time_ns()
+print((end - start) / 1_000_000_000)

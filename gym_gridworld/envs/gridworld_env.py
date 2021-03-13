@@ -71,7 +71,17 @@ class GridworldEnv(gym.Env):
     def __init__(self, gridworld_layout_name="7x7-simple.txt"):
         self.render_on = True
         self.grid = load_gridworld(gridworld_layout_name)
-        self._add_outer_wall()
+        self._add_outer_walls()
+
+        self.action_space = gym.spaces.Discrete(4)
+
+        self.n_states = 0
+        for row in self.grid:
+            for col in row:
+                if col.tile_type is not TileType.WALL:
+                    self.n_states += 1
+
+        self.observation_space = gym.spaces.Discrete(self.n_states)
 
         self.start_state = self._get_start_tile_location()
         self.current_state = self.start_state.copy()
@@ -143,7 +153,7 @@ class GridworldEnv(gym.Env):
     def _create_v_walls(self):
         return np.array([Tile(TileType.WALL) for _ in range(self.grid.shape[0])])
 
-    def _add_outer_wall(self):
+    def _add_outer_walls(self):
         self.grid = np.r_[[self._create_h_walls()], self.grid]
         self.grid = np.r_[self.grid, [self._create_h_walls()]]
 
